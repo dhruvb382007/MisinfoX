@@ -1,4 +1,7 @@
-const API_BASE = 'http://localhost:8001/api';
+import toast from 'react-hot-toast';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const API_BASE = `${API_URL}/api`;
 
 class ApiService {
   getHeaders() {
@@ -10,29 +13,77 @@ class ApiService {
   }
 
   async request(endpoint, options = {}) {
-    // If endpoint starts with /api, use it as is, otherwise append it
     const url = endpoint.startsWith('http') 
       ? endpoint 
-      : (endpoint.startsWith('/api') ? `http://localhost:8001${endpoint}` : `${API_BASE}${endpoint}`);
+      : (endpoint.startsWith('/api') ? `${API_URL}${endpoint}` : `${API_BASE}${endpoint}`);
 
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        ...this.getHeaders(),
-        ...options.headers,
-      },
-    });
+    const maxRetries = 3;
+    const timeoutMs = 8000;
+    let attempt = 0;
+    let loadingToastId = null;
 
-    if (!res.ok) {
-      let errDetail = `API error ${res.status}`;
+    while (attempt < maxRetries) {
       try {
-        const errData = await res.json();
-        errDetail = errData.detail || errDetail;
-      } catch (e) {}
-      throw new Error(errDetail);
-    }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    return res.json();
+        const res = await fetch(url, {
+          ...options,
+          headers: {
+            ...this.getHeaders(),
+            ...options.headers,
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (loadingToastId) {
+          toast.dismiss(loadingToastId);
+          toast.success('Connected to backend!', { duration: 2000, id: 'backend-success' });
+          loadingToastId = null;
+        }
+
+        if (!res.ok) {
+          let errDetail = `API error ${res.status}`;
+          try {
+            const errData = await res.json();
+            errDetail = errData.detail || errDetail;
+          } catch (e) {}
+
+          if (res.status === 401) {
+            toast.error('Session expired. Please log in again.', { id: 'auth-error' });
+            localStorage.removeItem('tl-token');
+            window.location.href = '/login';
+          } else if (res.status >= 500) {
+            toast.error('Server error. Please try again later.', { id: 'server-error' });
+          }
+
+          throw new Error(errDetail);
+        }
+
+        return await res.json();
+      } catch (err) {
+        attempt++;
+        
+        const isNetworkError = err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
+
+        if (isNetworkError) {
+          if (attempt === 1) {
+            loadingToastId = toast.loading('Backend is waking up. Please wait...');
+          }
+          if (attempt >= maxRetries) {
+            if (loadingToastId) toast.dismiss(loadingToastId);
+            toast.error('Unable to connect to the server.', { id: 'conn-error' });
+            throw new Error('Connection failed after multiple retries. Backend might be offline.');
+          }
+          // Wait before retrying
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          if (loadingToastId) toast.dismiss(loadingToastId);
+          throw err;
+        }
+      }
+    }
   }
 
   async get(endpoint) {
@@ -58,28 +109,35 @@ class ApiService {
     formData.append('username', email);
     formData.append('password', password);
 
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Login failed');
+    try {
+      const res = await this.request('/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
+      return res;
+    } catch (err) {
+      toast.error(err.message || 'Login failed');
+      throw err;
     }
-    return res.json();
   }
 
   async register(name, email, password) {
-    return this.post('/auth/register', { name, email, password });
+    try {
+      const res = await this.post('/auth/register', { name, email, password });
+      toast.success('Registration successful! Please log in.');
+      return res;
+    } catch (err) {
+      toast.error(err.message || 'Registration failed');
+      throw err;
+    }
   }
 
   // Analysis specific
   async analyze(text) {
-    return this.request('http://localhost:8001/analyze', {
+    return this.request(`${API_URL}/analyze`, {
       method: 'POST',
       body: JSON.stringify({ text }),
     });

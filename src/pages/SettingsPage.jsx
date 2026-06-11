@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Key, Save, LoaderIcon, Trash2, CheckCircle } from 'lucide-react';
+import { Key, Save, LoaderIcon, Trash2, CheckCircle, Activity, Server, ServerCrash } from 'lucide-react';
 import { api } from '../services/api';
 
 export default function SettingsPage() {
@@ -8,6 +8,28 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState('idle'); // idle, saving, success, error
   const [error, setError] = useState('');
+  const [backendHealth, setBackendHealth] = useState('checking'); // checking, online, offline
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const checkHealth = async () => {
+      try {
+        await api.get('/health');
+        if (isMounted) setBackendHealth('online');
+      } catch (err) {
+        if (isMounted) setBackendHealth('offline');
+      }
+    };
+    
+    checkHealth();
+    
+    const interval = setInterval(checkHealth, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -48,6 +70,43 @@ export default function SettingsPage() {
         
         <h1 className="text-4xl font-bold font-instrument mb-2">Settings</h1>
         <p className="text-white/40 font-cabin mb-10">Manage your profile and API integrations</p>
+
+        {/* Health Monitoring Widget */}
+        <div className="bg-[#1c1528] rounded-3xl border border-white/5 overflow-hidden shadow-2xl mb-8 flex items-center justify-between p-6">
+          <div className="flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
+              backendHealth === 'online' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+              backendHealth === 'offline' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
+              'bg-white/5 border-white/10 text-white/40'
+            }`}>
+              {backendHealth === 'online' ? <Server size={24} /> : 
+               backendHealth === 'offline' ? <ServerCrash size={24} /> : 
+               <Activity size={24} className="animate-pulse" />}
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                Production Backend
+              </h2>
+              <p className="text-sm text-white/40 font-cabin mt-1 flex items-center gap-2">
+                Status: 
+                <span className={`font-medium ${
+                  backendHealth === 'online' ? 'text-emerald-400' : 
+                  backendHealth === 'offline' ? 'text-red-400' : 
+                  'text-white/60'
+                }`}>
+                  {backendHealth === 'online' ? 'Online' : 
+                   backendHealth === 'offline' ? 'Offline' : 
+                   'Checking...'}
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="text-right hidden sm:block">
+            <p className="text-xs text-white/30 font-mono">
+              {import.meta.env.VITE_API_URL || 'http://localhost:8001'}
+            </p>
+          </div>
+        </div>
 
         <div className="bg-[#1c1528] rounded-3xl border border-white/5 overflow-hidden shadow-2xl mb-8">
           <div className="p-6 border-b border-white/5 bg-white/[0.01]">
