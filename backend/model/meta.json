@@ -1,0 +1,15 @@
+{
+  "accuracy": 98.3,
+  "classes": [
+    "Misleading",
+    "Reliable",
+    "Uncertain"
+  ],
+  "version": "2.0",
+  "datasets": [
+    "GeorgeMcIntire-Fake-Real",
+    "LIAR",
+    "synthetic-uncertain"
+  ],
+  "model": "LinearSVC + word/char TF-IDF"
+}
